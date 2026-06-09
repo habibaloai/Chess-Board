@@ -9,7 +9,7 @@ Desktop chess where you **speak moves**, see a **live pygame board**, and play a
 - Pygame board with **square labels** (a1–h8) and Unicode pieces
 - **Stockfish** replies after each valid move
 - Invalid input: error beep + auto re-listen; valid move: short success chime (no voice)
-- **Robot layer** abstracted (`RobotInterface`); simulator prints pick/move/drop for now
+- **Physical robot** via GRBL/Arduino (`SerialRobot`) or **simulator** for testing without hardware
 
 ## Project layout
 
@@ -22,7 +22,7 @@ chess_voice_robot/
 ├── ai/stockfish_engine.py
 ├── ui/board_gui.py
 ├── core/controller.py
-├── robot/interface.py, simulator.py
+├── robot/interface.py, serial_robot.py, simulator.py
 └── utils/audio.py, move_parser.py
 ```
 
@@ -72,10 +72,58 @@ Speech uses Google Web Speech API (`speech_recognition`) — **internet required
 
 ## Run
 
+Always start from the project root with the virtual environment active:
+
 ```bash
+cd /Users/habiba/Desktop/Chess-board
+source venv/bin/activate
+```
+
+### Without Arduino (simulator — virtual board only)
+
+Use this when the Arduino is unplugged or you only want to test speech, chess rules, and the GUI. Robot moves are printed to the terminal instead of driving motors.
+
+```bash
+cd /Users/habiba/Desktop/Chess-board
+source venv/bin/activate
+USE_ROBOT_SIMULATOR=1 python -m chess_voice_robot.main
+```
+
+You should see `[Robot] Using simulator (no hardware).` in the terminal.
+
+### With Arduino connected (real motors)
+
+1. Plug in the Arduino running **GRBL** firmware.
+2. Close **UGS** or any other app using the serial port.
+3. Set the correct port in `chess_voice_robot/config.py` (`SERIAL_PORT`) or pass it at runtime:
+
+```bash
+# Default port from config.py
+cd /Users/habiba/Desktop/Chess-board
 source venv/bin/activate
 python -m chess_voice_robot.main
+# or with a custom port:
+SERIAL_PORT=/dev/tty.usbmodemXXXX python -m chess_voice_robot.main
+
+# Or override the port for this session
+SERIAL_PORT=/dev/tty.usbmodemXXXX python -m chess_voice_robot.main
 ```
+
+Find your port on macOS:
+
+```bash
+ls /dev/tty.usb*
+```
+
+You should see `[Robot] Connecting to GRBL on ...` in the terminal. When you speak a move or Stockfish replies, the carriage moves to the source square then the destination square.
+
+**Quick motor test** (no speech/GUI — just sends `e2 → e4`):
+
+```bash
+python -m chess_voice_robot.robot.serial_robot
+```
+
+### Gameplay
 
 Speak as **White** when prompted. Examples:
 
@@ -93,15 +141,22 @@ Close the pygame window to exit.
 - After an invalid move, the mic pauses briefly so old phrases are not replayed as errors
 - Window icon: white chess king
 
-## Future robot hardware
+## Robot hardware config
 
-Implement `RobotInterface` in a new class (e.g. `robot/serial_robot.py`) and pass it into `GameController` instead of `RobotSimulator`. Core controller, chess engine, speech, and GUI stay unchanged.
+Tune physical setup in `chess_voice_robot/config.py`:
 
-```python
-class RobotInterface(ABC):
-    def move(self, from_square: str, to_square: str) -> None: ...
+| Variable | Purpose |
+|----------|---------|
+| `SERIAL_PORT` | Arduino serial port |
+| `SQUARE_SIZE_MM` | Distance between square centers (mm) |
+| `BOARD_ORIGIN_X_MM` / `BOARD_ORIGIN_Y_MM` | Machine coordinates of square `a1` |
+| `X_AXIS_DIRECTION` / `Y_AXIS_DIRECTION` | `1` or `-1` to flip axis direction |
+| `MOVE_FEED_RATE` | Speed in mm/min (`0` = GRBL default) |
+| `MOVE_SETTLE_TIME` | Seconds to wait after each move |
+
+Environment overrides:
+
+```bash
+export SERIAL_PORT=/dev/tty.usbmodemXXXX
+export USE_ROBOT_SIMULATOR=1   # force simulator mode
 ```
-
-## License
-
-MIT — use and modify freely.

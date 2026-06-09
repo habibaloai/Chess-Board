@@ -3,3 +3,4 @@ SpeechRecognition>=3.10.0
 pygame>=2.5.0
 # PyAudio needs PortAudio first:  brew install portaudio  (macOS)
 PyAudio>=0.2.14
+pyserial>=3.5

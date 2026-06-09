@@ -10,12 +10,26 @@ Requirements: microphone, internet (Google speech API), Stockfish installed.
 import queue
 import sys
 
+from chess_voice_robot import config
 from chess_voice_robot.ai.stockfish_engine import StockfishEngine
 from chess_voice_robot.chess_engine.game import ChessGame
 from chess_voice_robot.core.controller import GameController
-from chess_voice_robot.robot.simulator import RobotSimulator
+from chess_voice_robot.robot.interface import RobotInterface
 from chess_voice_robot.speech.speech_recognizer import SpeechRecognizer
 from chess_voice_robot.ui.board_gui import BoardGUI
+
+
+def _create_robot() -> RobotInterface:
+    if config.USE_ROBOT_SIMULATOR:
+        from chess_voice_robot.robot.simulator import RobotSimulator
+
+        print("[Robot] Using simulator (no hardware).")
+        return RobotSimulator()
+
+    from chess_voice_robot.robot.serial_robot import SerialRobot
+
+    print(f"[Robot] Connecting to GRBL on {config.SERIAL_PORT} ...")
+    return SerialRobot()
 
 
 def main() -> None:
@@ -26,7 +40,7 @@ def main() -> None:
 
     game = ChessGame()
     gui = BoardGUI()
-    robot = RobotSimulator()
+    robot = _create_robot()
     stockfish = StockfishEngine()
 
     try:
@@ -67,6 +81,8 @@ def main() -> None:
     finally:
         speech.stop()
         stockfish.stop()
+        if hasattr(robot, "close"):
+            robot.close()
         gui.quit()
         print("Goodbye.")
 

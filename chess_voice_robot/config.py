@@ -78,3 +78,31 @@ SPEAK_NOW_HINT = "Say a move, e.g. e2 e4 or e two e four"
 # ---------------------------------------------------------------------------
 # Human plays white; Stockfish plays black
 HUMAN_COLOR = "white"
+
+# ---------------------------------------------------------------------------
+# Physical robot (GRBL / Arduino)
+# Override port with environment variable: SERIAL_PORT=/dev/tty.usbmodemXXXX
+# Set USE_ROBOT_SIMULATOR=1 to test without hardware
+# ---------------------------------------------------------------------------
+USE_ROBOT_SIMULATOR = os.environ.get("USE_ROBOT_SIMULATOR", "0") == "1"
+
+SERIAL_PORT = os.environ.get("SERIAL_PORT", "/dev/tty.usbmodem141011")
+SERIAL_BAUD = 115200
+SERIAL_TIMEOUT = 1.0
+SERIAL_OPEN_DELAY = 2.0  # seconds — wait for Arduino reset after opening port
+
+GRBL_UNLOCK_ON_START = True
+GRBL_WAIT_FOR_OK = True
+GRBL_RESPONSE_TIMEOUT = 5.0  # seconds
+
+# Board geometry (millimetres)
+SQUARE_SIZE_MM = 40.0
+BOARD_ORIGIN_X_MM = 0.0   # machine X at square a1
+BOARD_ORIGIN_Y_MM = 0.0   # machine Y at square a1
+X_AXIS_DIRECTION = 1      # 1 or -1 — flip if X moves the wrong way
+Y_AXIS_DIRECTION = 1      # 1 or -1 — flip if Y moves the wrong way
+HOME_SQUARE = "a1"        # where the carriage is after homing
+
+# Motion tuning
+MOVE_FEED_RATE = 0        # mm/min — 0 lets GRBL use its default
+MOVE_SETTLE_TIME = 0.5    # seconds to wait after each G0 command
