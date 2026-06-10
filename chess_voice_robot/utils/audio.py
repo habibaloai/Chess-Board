@@ -84,7 +84,7 @@ def _play(sound: pygame.mixer.Sound) -> None:
     try:
         sound.play()
     except Exception:
-        print("\a", end="", flush=True)
+        pass
 
 
 def play_invalid_beep() -> None:

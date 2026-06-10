@@ -44,9 +44,7 @@ class StockfishEngine:
             limit = chess.engine.Limit(time=config.STOCKFISH_TIME_LIMIT)
             result = self._engine.play(board, limit)
             return result.move
-        except (chess.engine.EngineError, FileNotFoundError, OSError) as exc:
-            print(f"[Stockfish] Engine error: {exc}")
-            print(f"[Stockfish] Install Stockfish and/or set STOCKFISH_PATH in config.")
+        except (chess.engine.EngineError, FileNotFoundError, OSError):
             return None
 
     def __enter__(self):

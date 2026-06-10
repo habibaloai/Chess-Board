@@ -66,9 +66,17 @@ Optional custom path:
 export STOCKFISH_PATH=/opt/homebrew/bin/stockfish
 ```
 
-### 4. Microphone & internet
+### 4. Microphone
 
-Speech uses Google Web Speech API (`speech_recognition`) — **internet required**.
+Speech uses **faster-whisper** (runs locally — **no internet required**). On first run, the model downloads once (~150 MB for `base`).
+
+Tune in `config.py` or via environment:
+
+```bash
+export WHISPER_MODEL=small    # tiny | base | small | medium | large-v3
+export WHISPER_DEVICE=cpu     # cpu or cuda
+export WHISPER_COMPUTE_TYPE=int8
+```
 
 ## Run
 

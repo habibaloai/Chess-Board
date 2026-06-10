@@ -4,6 +4,7 @@ Uses a turn phase state machine so timing and mic gating feel like online chess.
 """
 
 import queue
+import threading
 import time
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Optional
@@ -27,7 +28,8 @@ class TurnPhase(Enum):
 
     HUMAN_TURN = auto()        # mic on — waiting for voice move
     HUMAN_PROCESSING = auto()  # applying a parsed move (brief)
-    ENGINE_WAITING = auto()    # delay before Stockfish plays
+    ROBOT_MOVING = auto()      # physical robot executing — mic off
+    ENGINE_WAITING = auto()    # delay before Stockfish plays (after robot idle)
     ENGINE_MOVING = auto()     # Stockfish thinking / applying
     SPEECH_COOLDOWN = auto()   # after invalid input — mic off, clear queue
     GAME_OVER = auto()
@@ -59,6 +61,60 @@ class GameController:
         self._engine_ready_at: float = 0.0
         self._cooldown_until: float = 0.0
         self._busy = False
+        self._robot_queue: queue.Queue = queue.Queue()
+        self._robot_lock = threading.Lock()
+        self._robot_moving = False
+        self._robot_resume: Optional[str] = None  # "engine", "human", or "game_over"
+        self._robot_thread = threading.Thread(target=self._robot_worker, daemon=True)
+        self._robot_thread.start()
+
+    def _robot_worker(self) -> None:
+        while True:
+            from_sq, to_sq = self._robot_queue.get()
+            if from_sq is None:
+                break
+            try:
+                self.robot.move(from_sq, to_sq)
+            finally:
+                with self._robot_lock:
+                    self._robot_moving = False
+
+    def _is_robot_idle(self) -> bool:
+        with self._robot_lock:
+            return not self._robot_moving and self._robot_queue.empty()
+
+    def _dispatch_robot_move(self, from_sq: str, to_sq: str, *, resume: str) -> None:
+        """Queue a robot move; call _on_robot_idle() when resume target is reached."""
+        with self._robot_lock:
+            self._robot_moving = True
+        self._robot_resume = resume
+        self._phase = TurnPhase.ROBOT_MOVING
+        self.speech.set_paused(True)
+        self._clear_speech_queue()
+        self._robot_queue.put((from_sq, to_sq))
+
+    def _on_robot_idle(self) -> None:
+        if not self._is_robot_idle():
+            return
+        resume = self._robot_resume
+        self._robot_resume = None
+        if resume == "engine":
+            self._begin_engine_turn()
+        elif resume == "human":
+            self._begin_human_turn()
+        elif resume == "game_over":
+            self._phase = TurnPhase.GAME_OVER
+            self.speech.set_paused(True)
+        self.gui.draw(self.game.board)
+
+    def emergency_stop(self) -> None:
+        """Stop motors immediately and cancel any queued robot moves."""
+        try:
+            while True:
+                self._robot_queue.get_nowait()
+        except queue.Empty:
+            pass
+        self.robot.emergency_stop()
 
     def refresh_display(self) -> None:
         """Redraw board + status (e.g. pulsing mic indicator during your turn)."""
@@ -70,6 +126,9 @@ class GameController:
         self._update_status_bar()
 
         now = time.monotonic()
+
+        if self._phase == TurnPhase.ROBOT_MOVING and self._is_robot_idle():
+            self._on_robot_idle()
 
         if self._phase == TurnPhase.ENGINE_WAITING and now >= self._engine_ready_at:
             self._phase = TurnPhase.ENGINE_MOVING
@@ -117,6 +176,10 @@ class GameController:
         return latest
 
     def _begin_human_turn(self) -> None:
+        if not self._is_robot_idle():
+            self._phase = TurnPhase.ROBOT_MOVING
+            self.speech.set_paused(True)
+            return
         if self.game.is_game_over():
             self._phase = TurnPhase.GAME_OVER
             self.speech.set_paused(True)
@@ -126,6 +189,10 @@ class GameController:
         self.speech.set_paused(False)
 
     def _begin_engine_turn(self) -> None:
+        if not self._is_robot_idle():
+            self._phase = TurnPhase.ROBOT_MOVING
+            self.speech.set_paused(True)
+            return
         self._phase = TurnPhase.ENGINE_WAITING
         self.speech.set_paused(True)
         self._clear_speech_queue()
@@ -171,6 +238,16 @@ class GameController:
             )
             return
 
+        if self._phase == TurnPhase.ROBOT_MOVING:
+            self.gui.set_status(
+                StatusDisplay(
+                    title="Robot moving",
+                    subtitle=config.ROBOT_MOVING_MESSAGE,
+                    accent_color=config.COLOR_WAIT,
+                )
+            )
+            return
+
         if self._phase in (TurnPhase.ENGINE_WAITING, TurnPhase.ENGINE_MOVING):
             self.gui.set_status(
                 StatusDisplay(
@@ -211,31 +288,30 @@ class GameController:
 
         audio.play_valid_move()
         self._notify_robot_and_gui()
-        self._after_human_move()
 
     def _notify_robot_and_gui(self) -> None:
         squares = self.game.last_move_squares()
         if squares:
             from_sq, to_sq = squares
-            self.robot.move(from_sq, to_sq)
+            resume = "game_over" if self.game.is_game_over() else "engine"
+            self._dispatch_robot_move(from_sq, to_sq, resume=resume)
             self.gui.set_last_move_highlight(from_sq, to_sq)
-        self.gui.draw(self.game.board)
-
-    def _after_human_move(self) -> None:
-        if self.game.is_game_over():
+        elif self.game.is_game_over():
             self._phase = TurnPhase.GAME_OVER
             self.speech.set_paused(True)
-            self.gui.draw(self.game.board)
-            return
-
-        self._begin_engine_turn()
+        else:
+            self._begin_engine_turn()
         self.gui.draw(self.game.board)
 
     def _execute_engine_move(self) -> None:
+        if not self._is_robot_idle():
+            self._phase = TurnPhase.ROBOT_MOVING
+            return
+
         move: Optional[chess.Move] = self.stockfish.get_best_move(self.game.board)
         if move is None:
-            print("[Stockfish] Engine unavailable. Check Stockfish installation.")
-            self._begin_human_turn()
+            if self._is_robot_idle():
+                self._begin_human_turn()
             self.gui.draw(self.game.board)
             return
 
@@ -243,19 +319,13 @@ class GameController:
         to_sq = chess.square_name(move.to_square)
 
         if not self.game.push_move(move):
-            self._begin_human_turn()
+            if self._is_robot_idle():
+                self._begin_human_turn()
             return
 
-        self.robot.move(from_sq, to_sq)
+        resume = "game_over" if self.game.is_game_over() else "human"
+        self._dispatch_robot_move(from_sq, to_sq, resume=resume)
         self.gui.set_last_move_highlight(from_sq, to_sq)
-        self.gui.draw(self.game.board)
-
-        if self.game.is_game_over():
-            self._phase = TurnPhase.GAME_OVER
-            self.speech.set_paused(True)
-        else:
-            self._begin_human_turn()
-
         self.gui.draw(self.game.board)
 
     def initial_draw(self) -> None:

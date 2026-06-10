@@ -4,7 +4,7 @@ Voice-controlled chess vs Stockfish — entry point.
 Run from the project root (Chess-board folder):
     python -m chess_voice_robot.main
 
-Requirements: microphone, internet (Google speech API), Stockfish installed.
+Requirements: microphone, Stockfish installed. Speech uses local faster-whisper (offline).
 """
 
 import queue
@@ -23,21 +23,14 @@ def _create_robot() -> RobotInterface:
     if config.USE_ROBOT_SIMULATOR:
         from chess_voice_robot.robot.simulator import RobotSimulator
 
-        print("[Robot] Using simulator (no hardware).")
         return RobotSimulator()
 
     from chess_voice_robot.robot.serial_robot import SerialRobot
 
-    print(f"[Robot] Connecting to GRBL on {config.SERIAL_PORT} ...")
     return SerialRobot()
 
 
 def main() -> None:
-    print("=" * 50)
-    print("  Voice Chess — speak moves like 'e2 e4'")
-    print("  Close the window to quit.")
-    print("=" * 50)
-
     game = ChessGame()
     gui = BoardGUI()
     robot = _create_robot()
@@ -46,12 +39,6 @@ def main() -> None:
     try:
         stockfish.start()
     except FileNotFoundError:
-        print(
-            "\n[ERROR] Stockfish not found. Install it:\n"
-            "  macOS:  brew install stockfish\n"
-            "  Linux:  sudo apt install stockfish\n"
-            "  Or set STOCKFISH_PATH=/path/to/stockfish\n"
-        )
         gui.quit()
         sys.exit(1)
 
@@ -72,19 +59,18 @@ def main() -> None:
     running = True
     try:
         while running:
-            running = gui.pump_events()
+            running = gui.pump_events(on_estop=controller.emergency_stop)
             controller.tick()
             controller.refresh_display()
             gui.tick()
     except KeyboardInterrupt:
-        print("\nInterrupted.")
+        pass
     finally:
         speech.stop()
         stockfish.stop()
         if hasattr(robot, "close"):
             robot.close()
         gui.quit()
-        print("Goodbye.")
 
 
 if __name__ == "__main__":

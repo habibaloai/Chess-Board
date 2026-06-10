@@ -14,19 +14,19 @@ STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") o
 
 # How long Stockfish thinks per move (seconds)
 STOCKFISH_SKILL_LEVEL = 10  # 0–20 (higher = stronger)
-STOCKFISH_TIME_LIMIT = 0.5  # seconds per engine move
+STOCKFISH_TIME_LIMIT = 2  # seconds per engine move
 
 # Pause before the computer plays (feels like online chess)
-ENGINE_MOVE_DELAY = 1.0  # seconds
+ENGINE_MOVE_DELAY =2.0  # seconds
 
 # After invalid speech, ignore mic briefly (avoids echo + stale queue)
-SPEECH_COOLDOWN_AFTER_INVALID = 1.0  # seconds
+SPEECH_COOLDOWN_AFTER_INVALID = 2.0  # seconds
 
 # ---------------------------------------------------------------------------
 # GUI (pygame)
 # ---------------------------------------------------------------------------
-WINDOW_TITLE = "Voice Chess vs Stockfish"
-SQUARE_SIZE = 72  # pixels per square
+WINDOW_TITLE = "Wizard Chess"
+SQUARE_SIZE = 90  # pixels per square
 BOARD_SIZE = SQUARE_SIZE * 8
 STATUS_BAR_HEIGHT = 64
 WINDOW_WIDTH = BOARD_SIZE
@@ -40,8 +40,14 @@ COLOR_YOUR_TURN = (76, 175, 80)      # green — speak now
 COLOR_OPPONENT_TURN = (255, 152, 0)  # orange — thinking
 COLOR_WAIT = (120, 120, 125)
 COLOR_INVALID = (229, 115, 115)
+COLOR_ESTOP = (211, 47, 47)
+COLOR_ESTOP_PRESSED = (183, 28, 28)
+COLOR_ESTOP_TEXT = (255, 255, 255)
+ESTOP_BUTTON_WIDTH = 52
+ESTOP_BUTTON_HEIGHT = 28
 STATUS_FONT_SIZE = 20
 STATUS_SUB_FONT_SIZE = 14
+ESTOP_FONT_SIZE = 13
 
 # Board colors
 LIGHT_SQUARE = (240, 217, 181)  # cream
@@ -61,16 +67,25 @@ PIECES_UNICODE = {
 }
 
 # ---------------------------------------------------------------------------
-# Speech recognition
+# Speech recognition (faster-whisper — local, offline)
+# Model sizes: tiny, base, small, medium, large-v3 (larger = more accurate, slower)
+# Override: WHISPER_MODEL=small WHISPER_DEVICE=cpu
 # ---------------------------------------------------------------------------
-# Seconds to wait for microphone input before timing out
-SPEECH_TIMEOUT = 5
-SPEECH_PHRASE_LIMIT = 8  # max seconds per utterance
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
+WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
+WHISPER_LANGUAGE = "en"
+
+SPEECH_TIMEOUT = 5          # seconds to wait for speech to start
+SPEECH_PHRASE_LIMIT = 8     # max seconds per utterance
+SPEECH_PAUSE_THRESHOLD = 0.8  # seconds of silence to end phrase
+SPEECH_ENERGY_THRESHOLD = 300  # initial RMS threshold (auto-calibrated on startup)
 
 # ---------------------------------------------------------------------------
 # UI messages (visual only — no voice)
 # ---------------------------------------------------------------------------
 ENGINE_THINKING_MESSAGE = "Opponent is thinking."
+ROBOT_MOVING_MESSAGE = "Robot is moving — please wait."
 SPEAK_NOW_HINT = "Say a move, e.g. e2 e4 or e two e four"
 
 # ---------------------------------------------------------------------------
@@ -94,6 +109,9 @@ SERIAL_OPEN_DELAY = 2.0  # seconds — wait for Arduino reset after opening port
 GRBL_UNLOCK_ON_START = True
 GRBL_WAIT_FOR_OK = True
 GRBL_RESPONSE_TIMEOUT = 5.0  # seconds
+GRBL_WAIT_FOR_IDLE = True    # poll ? until GRBL reports Idle (motors stopped)
+GRBL_IDLE_TIMEOUT = 120.0    # seconds — max wait per motion segment
+GRBL_IDLE_POLL_INTERVAL = 0.05  # seconds between ? status polls
 
 # Board geometry (millimetres)
 SQUARE_SIZE_MM = 40.0

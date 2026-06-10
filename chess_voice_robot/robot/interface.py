@@ -26,3 +26,7 @@ class RobotInterface(ABC):
     def drop(self, square: str) -> None:
         """Optional: release piece at square (hardware may override)."""
         pass
+
+    def emergency_stop(self) -> None:
+        """Halt motion immediately (GRBL feed hold on real hardware)."""
+        pass

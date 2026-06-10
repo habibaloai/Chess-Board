@@ -2,8 +2,10 @@
 GRBL serial robot — moves the physical carriage when the game calls move().
 """
 
+import re
+import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import serial
 
@@ -21,41 +23,106 @@ class GRBLController:
         timeout: float = config.SERIAL_TIMEOUT,
     ) -> None:
         self.ser = serial.Serial(port, baud, timeout=timeout)
+        self._lock = threading.Lock()
         time.sleep(config.SERIAL_OPEN_DELAY)
         self._init_grbl()
 
     def _init_grbl(self) -> None:
-        self.ser.write(b"\r\n")
+        with self._lock:
+            self.ser.write(b"\r\n")
         if config.GRBL_UNLOCK_ON_START:
             self.send("$X")  # unlock after alarm/homing
 
-    def send(self, cmd: str) -> None:
-        cmd = cmd.strip() + "\n"
-        self.ser.write(cmd.encode())
+    def send(self, cmd: str, *, abort_check: Optional[Callable[[], bool]] = None) -> bool:
+        """Send a G-code line. Returns False if aborted before completion."""
+        if abort_check and abort_check():
+            return False
+        with self._lock:
+            if abort_check and abort_check():
+                return False
+            line = cmd.strip()
+            self.ser.write((line + "\n").encode())
         if config.GRBL_WAIT_FOR_OK:
-            self._wait_for_ok()
+            return self._wait_for_ok(abort_check=abort_check)
+        return True
 
-    def _wait_for_ok(self) -> None:
+    def feed_hold(self) -> None:
+        """GRBL real-time feed hold — decelerate and stop motion immediately."""
+        with self._lock:
+            self.ser.write(b"!")
+            self.ser.flush()
+
+    def query_status(self) -> Optional[str]:
+        """Request a real-time status report (send ?). Returns e.g. '<Idle|MPos:...>'."""
+        with self._lock:
+            self.ser.write(b"?")
+            self.ser.flush()
+            deadline = time.monotonic() + config.GRBL_RESPONSE_TIMEOUT
+            buf = ""
+            while time.monotonic() < deadline:
+                if self.ser.in_waiting:
+                    buf += self.ser.read(self.ser.in_waiting).decode(errors="ignore")
+                    match = re.search(r"<[^>]+>", buf)
+                    if match:
+                        return match.group(0)
+                time.sleep(config.GRBL_IDLE_POLL_INTERVAL)
+        return None
+
+    @staticmethod
+    def _status_state(status: str) -> Optional[str]:
+        if not status.startswith("<") or "|" not in status:
+            return None
+        return status[1:].split("|", 1)[0]
+
+    def wait_until_idle(
+        self,
+        *,
+        timeout: Optional[float] = None,
+        abort_check: Optional[Callable[[], bool]] = None,
+    ) -> bool:
+        """Block until GRBL reports Idle (motors finished) or timeout."""
+        if not config.GRBL_WAIT_FOR_IDLE:
+            return True
+
+        deadline = time.monotonic() + (timeout or config.GRBL_IDLE_TIMEOUT)
+        while time.monotonic() < deadline:
+            if abort_check and abort_check():
+                return False
+            status = self.query_status()
+            if status:
+                state = self._status_state(status)
+                if state in ("Idle", "Hold"):
+                    return True
+            time.sleep(config.GRBL_IDLE_POLL_INTERVAL)
+
+        return False
+
+    def _wait_for_ok(self, *, abort_check: Optional[Callable[[], bool]] = None) -> bool:
         deadline = time.monotonic() + config.GRBL_RESPONSE_TIMEOUT
         while time.monotonic() < deadline:
+            if abort_check and abort_check():
+                return False
             line = self._readline()
             if not line:
                 continue
+            if line.startswith("<"):
+                continue
             if line == "ok":
-                return
+                return True
             if line.startswith("error"):
-                print(f"[GRBL] {line}")
-                return
-        print("[GRBL] Timed out waiting for ok")
+                return False
+        return False
 
     def _readline(self) -> Optional[str]:
-        raw = self.ser.readline()
+        with self._lock:
+            raw = self.ser.readline()
         if not raw:
             return None
         return raw.decode(errors="ignore").strip()
 
     def close(self) -> None:
-        self.ser.close()
+        with self._lock:
+            self.ser.close()
 
 
 class SerialRobot(RobotInterface):
@@ -80,36 +147,66 @@ class SerialRobot(RobotInterface):
 
         self.grbl = GRBLController(port=self.port)
         self._current_square = config.HOME_SQUARE
+        self._abort = False
+
+    def emergency_stop(self) -> None:
+        self._abort = True
+        self.grbl.feed_hold()
+
+    def _aborted(self) -> bool:
+        return self._abort
 
     def move(self, from_square: str, to_square: str) -> None:
-        print(f"[Robot] Moving {from_square} -> {to_square}")
+        self._abort = False
 
-        self._goto_square(from_square)
+        if not self._goto_square(from_square):
+            return
+        if self._aborted():
+            return
         self.pick_up(from_square)
-        self._goto_square(to_square)
+        if self._aborted():
+            return
+        if not self._goto_square(to_square):
+            return
+        if self._aborted():
+            return
         self.drop(to_square)
 
-        self._current_square = to_square
+        if not self._aborted():
+            self._current_square = to_square
 
     def pick_up(self, square: str) -> None:
-        print(f"[Robot] Pick up at {square}")
         # Hook for electromagnet / gripper later
+        pass
 
     def drop(self, square: str) -> None:
-        print(f"[Robot] Drop at {square}")
         # Hook for electromagnet / gripper later
+        pass
 
-    def _goto_square(self, square: str) -> None:
+    def _goto_square(self, square: str) -> bool:
+        if self._aborted():
+            return False
+
         x_mm, y_mm = self._square_to_mm(square)
-        print(f"[Robot] Goto {square} -> X{x_mm:.2f} Y{y_mm:.2f}")
 
-        self.grbl.send("G90")  # absolute positioning
+        if not self.grbl.send("G90", abort_check=self._aborted):
+            return False
         if self.feed_rate > 0:
-            self.grbl.send(f"G0 X{x_mm:.3f} Y{y_mm:.3f} F{self.feed_rate}")
+            cmd = f"G0 X{x_mm:.3f} Y{y_mm:.3f} F{self.feed_rate}"
         else:
-            self.grbl.send(f"G0 X{x_mm:.3f} Y{y_mm:.3f}")
+            cmd = f"G0 X{x_mm:.3f} Y{y_mm:.3f}"
+        if not self.grbl.send(cmd, abort_check=self._aborted):
+            return False
+        if not self.grbl.wait_until_idle(abort_check=self._aborted):
+            return False
 
-        time.sleep(config.MOVE_SETTLE_TIME)
+        if config.MOVE_SETTLE_TIME > 0:
+            deadline = time.monotonic() + config.MOVE_SETTLE_TIME
+            while time.monotonic() < deadline:
+                if self._aborted():
+                    return False
+                time.sleep(0.05)
+        return True
 
     def _square_to_mm(self, square: str) -> tuple[float, float]:
         file = ord(square[0].lower()) - ord("a")  # a=0 ... h=7
