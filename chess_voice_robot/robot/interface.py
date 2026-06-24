@@ -27,6 +27,10 @@ class RobotInterface(ABC):
         """Optional: release piece at square (hardware may override)."""
         pass
 
+    def go_home(self) -> None:
+        """Return carriage to the bottom-left corner of the board (park / home position)."""
+        pass
+
     def emergency_stop(self) -> None:
         """Halt motion immediately (GRBL feed hold on real hardware)."""
         pass

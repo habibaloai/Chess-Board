@@ -116,6 +116,16 @@ class GameController:
             pass
         self.robot.emergency_stop()
 
+    def shutdown_robot(self) -> None:
+        """Drain queued moves, stop the worker, and wait for in-flight motion to finish."""
+        try:
+            while True:
+                self._robot_queue.get_nowait()
+        except queue.Empty:
+            pass
+        self._robot_queue.put((None, None))
+        self._robot_thread.join(timeout=config.GRBL_IDLE_TIMEOUT)
+
     def refresh_display(self) -> None:
         """Redraw board + status (e.g. pulsing mic indicator during your turn)."""
         self._update_status_bar()

@@ -68,6 +68,8 @@ def main() -> None:
     finally:
         speech.stop()
         stockfish.stop()
+        controller.shutdown_robot()
+        robot.go_home()
         if hasattr(robot, "close"):
             robot.close()
         gui.quit()

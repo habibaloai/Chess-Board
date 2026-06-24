@@ -146,8 +146,19 @@ class SerialRobot(RobotInterface):
         self.feed_rate = config.MOVE_FEED_RATE
 
         self.grbl = GRBLController(port=self.port)
-        self._current_square = config.HOME_SQUARE
+        self._current_square: Optional[str] = None
         self._abort = False
+        self._zero_work_coordinates()
+
+    def _zero_work_coordinates(self) -> None:
+        """Set GRBL work coordinates to the park position at the current carriage position."""
+        if not config.GRBL_ZERO_ON_START:
+            return
+        cmd = (
+            f"G92 X{config.HOME_WORK_X_MM:.3f} Y{config.HOME_WORK_Y_MM:.3f}"
+        )
+        if not self.grbl.send(cmd):
+            print(f"[Robot] Warning: work zero failed ({cmd})")
 
     def emergency_stop(self) -> None:
         self._abort = True
@@ -175,19 +186,29 @@ class SerialRobot(RobotInterface):
         if not self._aborted():
             self._current_square = to_square
 
+    def go_home(self) -> None:
+        self._abort = False
+        self.grbl.send("M5", abort_check=self._aborted)
+        if not self._goto_mm(config.HOME_WORK_X_MM, config.HOME_WORK_Y_MM):
+            return
+        if not self._aborted():
+            self._current_square = "a1"
+
     def pick_up(self, square: str) -> None:
-        # Hook for electromagnet / gripper later
-        pass
+        """Engage electromagnet at the piece's start square (after carriage arrives)."""
+        if self._aborted():
+            return
+        self.grbl.send("M3S1000", abort_check=self._aborted)
 
     def drop(self, square: str) -> None:
-        # Hook for electromagnet / gripper later
-        pass
+        """Release electromagnet at the piece's destination square (after carriage arrives)."""
+        if self._aborted():
+            return
+        self.grbl.send("M5", abort_check=self._aborted)
 
-    def _goto_square(self, square: str) -> bool:
+    def _goto_mm(self, x_mm: float, y_mm: float) -> bool:
         if self._aborted():
             return False
-
-        x_mm, y_mm = self._square_to_mm(square)
 
         if not self.grbl.send("G90", abort_check=self._aborted):
             return False
@@ -208,6 +229,12 @@ class SerialRobot(RobotInterface):
                 time.sleep(0.05)
         return True
 
+    def _goto_square(self, square: str) -> bool:
+        x_mm, y_mm = self._square_to_mm(square)
+        x_mm += config.ORIGIN_OFFSET_X_MM
+        y_mm += config.ORIGIN_OFFSET_Y_MM
+        return self._goto_mm(x_mm, y_mm)
+
     def _square_to_mm(self, square: str) -> tuple[float, float]:
         file = ord(square[0].lower()) - ord("a")  # a=0 ... h=7
         rank = int(square[1]) - 1                  # 1=0 ... 8=7
@@ -225,4 +252,5 @@ if __name__ == "__main__":
     try:
         bot.move("e2", "e4")
     finally:
+        bot.go_home()
         bot.close()

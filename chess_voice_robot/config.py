@@ -107,6 +107,9 @@ SERIAL_TIMEOUT = 1.0
 SERIAL_OPEN_DELAY = 2.0  # seconds — wait for Arduino reset after opening port
 
 GRBL_UNLOCK_ON_START = True
+# After serial open the Arduino resets — send G92 so work zero matches the park position.
+# Park the carriage on the bottom-left corner of the board before starting.
+GRBL_ZERO_ON_START = os.environ.get("GRBL_ZERO_ON_START", "1") == "1"
 GRBL_WAIT_FOR_OK = True
 GRBL_RESPONSE_TIMEOUT = 5.0  # seconds
 GRBL_WAIT_FOR_IDLE = True    # poll ? until GRBL reports Idle (motors stopped)
@@ -114,12 +117,23 @@ GRBL_IDLE_TIMEOUT = 120.0    # seconds — max wait per motion segment
 GRBL_IDLE_POLL_INTERVAL = 0.05  # seconds between ? status polls
 
 # Board geometry (millimetres)
-SQUARE_SIZE_MM = 40.0
-BOARD_ORIGIN_X_MM = 0.0   # machine X at square a1
-BOARD_ORIGIN_Y_MM = 0.0   # machine Y at square a1
+# Work zero (G92) is the bottom-left corner of the board — park there before starting.
+# Play area (board lines, edge to edge): 40 cm across 8 squares.
+PLAY_AREA_MM = 400.0
+SQUARE_SIZE_MM = PLAY_AREA_MM / 8.0  # 50 mm centre-to-centre
+
+# Board coordinate origin (a1 centre) — unchanged square math; see ORIGIN_OFFSET below.
+BOARD_ORIGIN_X_MM = 0.0
+BOARD_ORIGIN_Y_MM = 0.0
+HOME_WORK_X_MM = 0.0
+HOME_WORK_Y_MM = 0.0
+
+# Shift from board coordinates to physical work coordinates (a1 centre is +2.5 cm X/Y).
+ORIGIN_OFFSET_X_MM = 25.0
+ORIGIN_OFFSET_Y_MM = 25.0
+
 X_AXIS_DIRECTION = 1      # 1 or -1 — flip if X moves the wrong way
 Y_AXIS_DIRECTION = 1      # 1 or -1 — flip if Y moves the wrong way
-HOME_SQUARE = "a1"        # where the carriage is after homing
 
 # Motion tuning
 MOVE_FEED_RATE = 0        # mm/min — 0 lets GRBL use its default
