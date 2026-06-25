@@ -59,7 +59,11 @@ def main() -> None:
     running = True
     try:
         while running:
-            running = gui.pump_events(on_estop=controller.emergency_stop)
+            running = gui.pump_events(
+                on_estop=controller.emergency_stop,
+                on_board_click=controller.handle_board_click,
+                on_mic_toggle=controller.toggle_speech_mode,
+            )
             controller.tick()
             controller.refresh_display()
             gui.tick()

@@ -7,7 +7,7 @@ import queue
 import threading
 import time
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Set
 
 import chess
 
@@ -15,6 +15,10 @@ from chess_voice_robot import config
 from chess_voice_robot.chess_engine.game import ChessGame
 from chess_voice_robot.ai.stockfish_engine import StockfishEngine
 from chess_voice_robot.robot.interface import RobotInterface
+from chess_voice_robot.robot.capture_removal import (
+    captured_square_for_move,
+    occupied_square_names,
+)
 from chess_voice_robot.ui.board_gui import BoardGUI, StatusDisplay
 from chess_voice_robot.utils import audio
 from chess_voice_robot.utils.move_parser import parse_speech_to_uci
@@ -68,13 +72,23 @@ class GameController:
         self._robot_thread = threading.Thread(target=self._robot_worker, daemon=True)
         self._robot_thread.start()
 
+        self._selected_square: Optional[str] = None
+        self._legal_targets: Set[str] = set()
+
     def _robot_worker(self) -> None:
         while True:
-            from_sq, to_sq = self._robot_queue.get()
+            job = self._robot_queue.get()
+            from_sq = job[0]
             if from_sq is None:
                 break
+            to_sq, captured_sq, occupied = job[1], job[2], job[3]
             try:
-                self.robot.move(from_sq, to_sq)
+                self.robot.move(
+                    from_sq,
+                    to_sq,
+                    captured_square=captured_sq,
+                    occupied_squares=occupied,
+                )
             finally:
                 with self._robot_lock:
                     self._robot_moving = False
@@ -83,7 +97,15 @@ class GameController:
         with self._robot_lock:
             return not self._robot_moving and self._robot_queue.empty()
 
-    def _dispatch_robot_move(self, from_sq: str, to_sq: str, *, resume: str) -> None:
+    def _dispatch_robot_move(
+        self,
+        from_sq: str,
+        to_sq: str,
+        *,
+        resume: str,
+        captured_square: Optional[str] = None,
+        occupied_squares: Optional[set[str]] = None,
+    ) -> None:
         """Queue a robot move; call _on_robot_idle() when resume target is reached."""
         with self._robot_lock:
             self._robot_moving = True
@@ -91,7 +113,8 @@ class GameController:
         self._phase = TurnPhase.ROBOT_MOVING
         self.speech.set_paused(True)
         self._clear_speech_queue()
-        self._robot_queue.put((from_sq, to_sq))
+        self._clear_selection()
+        self._robot_queue.put((from_sq, to_sq, captured_square, occupied_squares))
 
     def _on_robot_idle(self) -> None:
         if not self._is_robot_idle():
@@ -123,12 +146,14 @@ class GameController:
                 self._robot_queue.get_nowait()
         except queue.Empty:
             pass
-        self._robot_queue.put((None, None))
+        self._robot_queue.put((None, None, None, None))
         self._robot_thread.join(timeout=config.GRBL_IDLE_TIMEOUT)
 
     def refresh_display(self) -> None:
         """Redraw board + status (e.g. pulsing mic indicator during your turn)."""
         self._update_status_bar()
+        if self._selected_square:
+            self.gui.set_selection(self._selected_square, self._legal_targets)
         self.gui.draw(self.game.board)
 
     def tick(self) -> None:
@@ -148,7 +173,11 @@ class GameController:
         if self._phase == TurnPhase.SPEECH_COOLDOWN and now >= self._cooldown_until:
             self._begin_human_turn()
 
-        if self._phase == TurnPhase.HUMAN_TURN and not self._busy:
+        if (
+            self._phase == TurnPhase.HUMAN_TURN
+            and not self._busy
+            and self.gui.speech_recognition_enabled
+        ):
             text = self._take_latest_speech()
             if text:
                 self._busy = True
@@ -158,8 +187,8 @@ class GameController:
                     self._busy = False
 
     def enqueue_speech(self, text: str) -> None:
-        """Only accept speech during the human turn (mic is unpaused)."""
-        if self._phase != TurnPhase.HUMAN_TURN:
+        """Only accept speech during the human turn in voice mode."""
+        if self._phase != TurnPhase.HUMAN_TURN or not self.gui.speech_recognition_enabled:
             return
         # Keep only the newest utterance — drop stale retries
         try:
@@ -196,7 +225,11 @@ class GameController:
             self._clear_speech_queue()
             return
         self._phase = TurnPhase.HUMAN_TURN
-        self.speech.set_paused(False)
+        if self.gui.speech_recognition_enabled:
+            self.speech.set_paused(False)
+        else:
+            self.speech.set_paused(True)
+            self._clear_speech_queue()
 
     def _begin_engine_turn(self) -> None:
         if not self._is_robot_idle():
@@ -227,13 +260,17 @@ class GameController:
             return
 
         if self._phase == TurnPhase.HUMAN_TURN:
+            subtitle = (
+                config.MOUSE_MODE_HINT
+                if not self.gui.speech_recognition_enabled
+                else config.SPEAK_NOW_HINT
+            )
             self.gui.set_status(
                 StatusDisplay(
                     title="Your turn — White",
-                    subtitle=config.SPEAK_NOW_HINT,
+                    subtitle=subtitle,
                     accent_color=config.COLOR_YOUR_TURN,
-                    show_mic=True,
-                    pulse=True,
+                    pulse=self.gui.speech_recognition_enabled,
                 )
             )
             return
@@ -277,6 +314,101 @@ class GameController:
                 )
             )
 
+    def toggle_speech_mode(self) -> None:
+        speech_on = self.gui.toggle_speech()
+        self._clear_selection()
+        if speech_on:
+            if self._phase == TurnPhase.HUMAN_TURN:
+                self.speech.set_paused(False)
+        else:
+            self.speech.set_paused(True)
+            self._clear_speech_queue()
+        self._update_status_bar()
+        self.gui.draw(self.game.board)
+
+    def handle_board_click(self, square: str) -> None:
+        """Click-to-move when the mic is off (mouse mode)."""
+        if self.gui.speech_recognition_enabled:
+            return
+        if self._phase != TurnPhase.HUMAN_TURN:
+            return
+        if self.game.is_game_over():
+            return
+
+        board = self.game.board
+        sq_idx = chess.parse_square(square)
+        piece = board.piece_at(sq_idx)
+
+        if self._selected_square is None:
+            if piece is None or piece.color != chess.WHITE:
+                return
+            legal_from_here = [
+                m for m in board.legal_moves if m.from_square == sq_idx
+            ]
+            if not legal_from_here:
+                self.gui.flash_illegal({square})
+                self.gui.draw(board)
+                return
+            self._selected_square = square
+            self._legal_targets = {chess.square_name(m.to_square) for m in legal_from_here}
+            self.gui.set_selection(self._selected_square, self._legal_targets)
+            self.gui.draw(board)
+            return
+
+        if square == self._selected_square:
+            self._clear_selection()
+            self.gui.draw(board)
+            return
+
+        if piece is not None and piece.color == chess.WHITE:
+            legal_from_here = [
+                m for m in board.legal_moves if m.from_square == sq_idx
+            ]
+            if legal_from_here:
+                self._selected_square = square
+                self._legal_targets = {chess.square_name(m.to_square) for m in legal_from_here}
+                self.gui.set_selection(self._selected_square, self._legal_targets)
+                self.gui.draw(board)
+                return
+
+        move = self._move_for_click(board, self._selected_square, square)
+        if move is None:
+            self.gui.flash_illegal({square, self._selected_square})
+            self._clear_selection()
+            self.gui.draw(board)
+            return
+
+        self._clear_selection()
+        self._phase = TurnPhase.HUMAN_PROCESSING
+        self.speech.set_paused(True)
+        self._update_status_bar()
+        self.gui.draw(board)
+
+        audio.play_valid_move()
+        if not self._apply_move_and_dispatch_robot(move, resume_on_continue="engine"):
+            self.gui.flash_illegal({square})
+            self.gui.draw(board)
+            self._begin_human_turn()
+
+    def _clear_selection(self) -> None:
+        self._selected_square = None
+        self._legal_targets = set()
+        self.gui.clear_selection()
+
+    @staticmethod
+    def _move_for_click(board: chess.Board, from_sq: str, to_sq: str) -> Optional[chess.Move]:
+        from_idx = chess.parse_square(from_sq)
+        to_idx = chess.parse_square(to_sq)
+        candidates = [
+            m for m in board.legal_moves
+            if m.from_square == from_idx and m.to_square == to_idx
+        ]
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        return max(candidates, key=lambda m: m.promotion or chess.QUEEN)
+
     def _handle_speech(self, text: str) -> None:
         if self._phase != TurnPhase.HUMAN_TURN:
             return
@@ -291,20 +423,47 @@ class GameController:
         self.gui.draw(self.game.board)
 
         uci = parse_speech_to_uci(text)
-        if uci is None or not self.game.push_uci(uci):
+        if uci is None:
+            self._begin_invalid_cooldown()
+            self.gui.draw(self.game.board)
+            return
+
+        try:
+            move = chess.Move.from_uci(uci)
+        except ValueError:
+            self._begin_invalid_cooldown()
+            self.gui.draw(self.game.board)
+            return
+
+        if move not in self.game.board.legal_moves:
             self._begin_invalid_cooldown()
             self.gui.draw(self.game.board)
             return
 
         audio.play_valid_move()
-        self._notify_robot_and_gui()
+        if not self._apply_move_and_dispatch_robot(move, resume_on_continue="engine"):
+            self._begin_invalid_cooldown()
+            self.gui.draw(self.game.board)
 
-    def _notify_robot_and_gui(self) -> None:
+    def _apply_move_and_dispatch_robot(self, move: chess.Move, *, resume_on_continue: str) -> bool:
+        """Record pre-move occupancy, apply move, and queue the physical robot sequence."""
+        occupied = occupied_square_names(self.game.board)
+        captured = captured_square_for_move(self.game.board, move)
+
+        if not self.game.push_move(move):
+            return False
+
+        resume = "game_over" if self.game.is_game_over() else resume_on_continue
         squares = self.game.last_move_squares()
         if squares:
             from_sq, to_sq = squares
-            resume = "game_over" if self.game.is_game_over() else "engine"
-            self._dispatch_robot_move(from_sq, to_sq, resume=resume)
+            self._dispatch_robot_move(
+                from_sq,
+                to_sq,
+                resume=resume,
+                captured_square=captured,
+                occupied_squares=occupied,
+            )
             self.gui.set_last_move_highlight(from_sq, to_sq)
         elif self.game.is_game_over():
             self._phase = TurnPhase.GAME_OVER
@@ -312,6 +471,7 @@ class GameController:
         else:
             self._begin_engine_turn()
         self.gui.draw(self.game.board)
+        return True
 
     def _execute_engine_move(self) -> None:
         if not self._is_robot_idle():
@@ -325,18 +485,15 @@ class GameController:
             self.gui.draw(self.game.board)
             return
 
-        from_sq = chess.square_name(move.from_square)
-        to_sq = chess.square_name(move.to_square)
-
-        if not self.game.push_move(move):
+        if move not in self.game.board.legal_moves:
             if self._is_robot_idle():
                 self._begin_human_turn()
             return
 
-        resume = "game_over" if self.game.is_game_over() else "human"
-        self._dispatch_robot_move(from_sq, to_sq, resume=resume)
-        self.gui.set_last_move_highlight(from_sq, to_sq)
-        self.gui.draw(self.game.board)
+        if not self._apply_move_and_dispatch_robot(move, resume_on_continue="human"):
+            if self._is_robot_idle():
+                self._begin_human_turn()
+            self.gui.draw(self.game.board)
 
     def initial_draw(self) -> None:
         self.gui.draw(self.game.board)

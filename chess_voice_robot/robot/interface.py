@@ -3,6 +3,7 @@ Abstract robot interface — swap Simulator for real hardware later.
 """
 
 from abc import ABC, abstractmethod
+from typing import AbstractSet, Optional
 
 
 class RobotInterface(ABC):
@@ -12,10 +13,18 @@ class RobotInterface(ABC):
     """
 
     @abstractmethod
-    def move(self, from_square: str, to_square: str) -> None:
+    def move(
+        self,
+        from_square: str,
+        to_square: str,
+        *,
+        captured_square: Optional[str] = None,
+        occupied_squares: Optional[AbstractSet[str]] = None,
+    ) -> None:
         """
         Command the robot to move a piece from one square to another.
         Squares use algebraic notation: e2, e4, a1, etc.
+        When *captured_square* is set, remove that piece before the normal move.
         """
         pass
 

@@ -40,11 +40,20 @@ COLOR_YOUR_TURN = (76, 175, 80)      # green — speak now
 COLOR_OPPONENT_TURN = (255, 152, 0)  # orange — thinking
 COLOR_WAIT = (120, 120, 125)
 COLOR_INVALID = (229, 115, 115)
+COLOR_SELECTED_SQUARE = (255, 235, 59, 100)   # yellow tint
+COLOR_LEGAL_MOVE = (76, 175, 80, 140)         # green tint / dot
+COLOR_ILLEGAL_FLASH = (211, 47, 47, 180)      # red tint
+COLOR_INPUT_TOGGLE_ON = (76, 175, 80)
+COLOR_INPUT_TOGGLE_OFF = (90, 90, 95)
 COLOR_ESTOP = (211, 47, 47)
 COLOR_ESTOP_PRESSED = (183, 28, 28)
 COLOR_ESTOP_TEXT = (255, 255, 255)
 ESTOP_BUTTON_WIDTH = 52
 ESTOP_BUTTON_HEIGHT = 28
+INPUT_TOGGLE_WIDTH = 64
+INPUT_TOGGLE_HEIGHT = 28
+MIC_BUTTON_SIZE = 44
+MIC_HIT_PADDING = 10
 STATUS_FONT_SIZE = 20
 STATUS_SUB_FONT_SIZE = 14
 ESTOP_FONT_SIZE = 13
@@ -86,7 +95,9 @@ SPEECH_ENERGY_THRESHOLD = 300  # initial RMS threshold (auto-calibrated on start
 # ---------------------------------------------------------------------------
 ENGINE_THINKING_MESSAGE = "Opponent is thinking."
 ROBOT_MOVING_MESSAGE = "Robot is moving — please wait."
-SPEAK_NOW_HINT = "Say a move, e.g. e2 e4 or e two e four"
+SPEAK_NOW_HINT = "Speak a move, or click 🎤 / press M for mouse mode"
+MOUSE_MODE_HINT = "Mic off — click a piece, then its destination (M toggles voice)"
+INVALID_MOVE_FLASH_MS = 600
 
 # ---------------------------------------------------------------------------
 # Game

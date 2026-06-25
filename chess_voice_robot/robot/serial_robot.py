@@ -5,11 +5,13 @@ GRBL serial robot — moves the physical carriage when the game calls move().
 import re
 import threading
 import time
-from typing import Callable, Optional
+from typing import AbstractSet, Callable, Optional
 
 import serial
 
 from chess_voice_robot import config
+from chess_voice_robot.robot.capture_removal import plan_capture_removal
+from chess_voice_robot.robot.grbl_log import log_command
 from chess_voice_robot.robot.interface import RobotInterface
 
 
@@ -41,6 +43,7 @@ class GRBLController:
             if abort_check and abort_check():
                 return False
             line = cmd.strip()
+            log_command(line)
             self.ser.write((line + "\n").encode())
         if config.GRBL_WAIT_FOR_OK:
             return self._wait_for_ok(abort_check=abort_check)
@@ -167,8 +170,21 @@ class SerialRobot(RobotInterface):
     def _aborted(self) -> bool:
         return self._abort
 
-    def move(self, from_square: str, to_square: str) -> None:
+    def move(
+        self,
+        from_square: str,
+        to_square: str,
+        *,
+        captured_square: Optional[str] = None,
+        occupied_squares: Optional[AbstractSet[str]] = None,
+    ) -> None:
         self._abort = False
+
+        if captured_square:
+            if not self._remove_captured_piece(captured_square, occupied_squares or set()):
+                return
+            if self._aborted():
+                return
 
         if not self._goto_square(from_square):
             return
@@ -185,6 +201,29 @@ class SerialRobot(RobotInterface):
 
         if not self._aborted():
             self._current_square = to_square
+
+    def _remove_captured_piece(
+        self,
+        captured_square: str,
+        occupied_squares: AbstractSet[str],
+    ) -> bool:
+        """Pick up a captured piece and slide it off the board along a rank edge."""
+        if not self._goto_square(captured_square):
+            return False
+        if self._aborted():
+            return False
+        self.pick_up(captured_square)
+        if self._aborted():
+            return False
+
+        for x_mm, y_mm in plan_capture_removal(captured_square, set(occupied_squares)):
+            if not self._goto_mm(x_mm, y_mm):
+                return False
+            if self._aborted():
+                return False
+
+        self.drop(captured_square)
+        return not self._aborted()
 
     def go_home(self) -> None:
         self._abort = False
