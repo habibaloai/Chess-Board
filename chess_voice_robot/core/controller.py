@@ -81,13 +81,14 @@ class GameController:
             from_sq = job[0]
             if from_sq is None:
                 break
-            to_sq, captured_sq, occupied = job[1], job[2], job[3]
+            to_sq, captured_sq, occupied, moving_piece = job[1], job[2], job[3], job[4]
             try:
                 self.robot.move(
                     from_sq,
                     to_sq,
                     captured_square=captured_sq,
                     occupied_squares=occupied,
+                    moving_piece=moving_piece,
                 )
             finally:
                 with self._robot_lock:
@@ -105,6 +106,7 @@ class GameController:
         resume: str,
         captured_square: Optional[str] = None,
         occupied_squares: Optional[set[str]] = None,
+        moving_piece: Optional[str] = None,
     ) -> None:
         """Queue a robot move; call _on_robot_idle() when resume target is reached."""
         with self._robot_lock:
@@ -114,7 +116,7 @@ class GameController:
         self.speech.set_paused(True)
         self._clear_speech_queue()
         self._clear_selection()
-        self._robot_queue.put((from_sq, to_sq, captured_square, occupied_squares))
+        self._robot_queue.put((from_sq, to_sq, captured_square, occupied_squares, moving_piece))
 
     def _on_robot_idle(self) -> None:
         if not self._is_robot_idle():
@@ -146,7 +148,7 @@ class GameController:
                 self._robot_queue.get_nowait()
         except queue.Empty:
             pass
-        self._robot_queue.put((None, None, None, None))
+        self._robot_queue.put((None, None, None, None, None))
         self._robot_thread.join(timeout=config.GRBL_IDLE_TIMEOUT)
 
     def refresh_display(self) -> None:
@@ -449,6 +451,8 @@ class GameController:
         """Record pre-move occupancy, apply move, and queue the physical robot sequence."""
         occupied = occupied_square_names(self.game.board)
         captured = captured_square_for_move(self.game.board, move)
+        piece = self.game.board.piece_at(move.from_square)
+        moving_piece = piece.symbol() if piece else None
 
         if not self.game.push_move(move):
             return False
@@ -463,6 +467,7 @@ class GameController:
                 resume=resume,
                 captured_square=captured,
                 occupied_squares=occupied,
+                moving_piece=moving_piece,
             )
             self.gui.set_last_move_highlight(from_sq, to_sq)
         elif self.game.is_game_over():

@@ -11,6 +11,11 @@ import serial
 
 from chess_voice_robot import config
 from chess_voice_robot.robot.capture_removal import plan_capture_removal
+from chess_voice_robot.robot.knight_path import (
+    is_knight_move,
+    log_knight_plan,
+    plan_knight_transport,
+)
 from chess_voice_robot.robot.grbl_log import log_command
 from chess_voice_robot.robot.interface import RobotInterface
 
@@ -177,6 +182,7 @@ class SerialRobot(RobotInterface):
         *,
         captured_square: Optional[str] = None,
         occupied_squares: Optional[AbstractSet[str]] = None,
+        moving_piece: Optional[str] = None,
     ) -> None:
         self._abort = False
 
@@ -193,7 +199,12 @@ class SerialRobot(RobotInterface):
         self.pick_up(from_square)
         if self._aborted():
             return
-        if not self._goto_square(to_square):
+        if not self._goto_transport(
+            from_square,
+            to_square,
+            occupied_squares,
+            moving_piece,
+        ):
             return
         if self._aborted():
             return
@@ -224,6 +235,32 @@ class SerialRobot(RobotInterface):
 
         self.drop(captured_square)
         return not self._aborted()
+
+    def _goto_transport(
+        self,
+        from_square: str,
+        to_square: str,
+        occupied_squares: Optional[AbstractSet[str]],
+        moving_piece: Optional[str],
+    ) -> bool:
+        if (
+            moving_piece in ("N", "n")
+            and is_knight_move(from_square, to_square)
+        ):
+            occupied = set(occupied_squares or ())
+            waypoints, mode, occupied_detected, long_dir, side_dir = plan_knight_transport(
+                from_square, to_square, occupied
+            )
+            log_knight_plan(
+                from_square, to_square, mode, waypoints, occupied_detected, long_dir, side_dir
+            )
+            for x_mm, y_mm in waypoints:
+                if not self._goto_mm(x_mm, y_mm):
+                    return False
+                if self._aborted():
+                    return False
+            return True
+        return self._goto_square(to_square)
 
     def go_home(self) -> None:
         self._abort = False

@@ -2,6 +2,7 @@
 Pygame chessboard GUI — board, turn/status bar, and window icon.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Callable, Optional, Set, Tuple
 
@@ -55,7 +56,9 @@ class BoardGUI:
 
         self._highlight: Optional[Tuple[str, str]] = None
         self._status = StatusDisplay()
-        self._board_offset_y = config.STATUS_BAR_HEIGHT
+        self._board_offset_x = (config.WINDOW_WIDTH - config.BOARD_SIZE) // 2
+        self._board_offset_y = (config.WINDOW_HEIGHT - config.BOARD_SIZE) // 2
+        self._background = self._load_background()
         self._estop_pressed = False
         self._estop_rect = pygame.Rect(
             config.WINDOW_WIDTH - config.ESTOP_BUTTON_WIDTH - 10,
@@ -78,6 +81,15 @@ class BoardGUI:
         self._legal_targets: Set[str] = set()
         self._illegal_flash_squares: Set[str] = set()
         self._illegal_flash_until_ms = 0
+
+    def _load_background(self) -> Optional[pygame.Surface]:
+        path = config.BACKGROUND_IMAGE
+        if not os.path.isfile(path):
+            return None
+        image = pygame.image.load(path).convert()
+        return pygame.transform.smoothscale(
+            image, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT)
+        )
 
     @property
     def speech_recognition_enabled(self) -> bool:
@@ -113,9 +125,14 @@ class BoardGUI:
 
     def square_at_pixel(self, pos: Tuple[int, int]) -> Optional[str]:
         x, y = pos
-        if y < self._board_offset_y:
+        if (
+            x < self._board_offset_x
+            or y < self._board_offset_y
+            or x >= self._board_offset_x + config.BOARD_SIZE
+            or y >= self._board_offset_y + config.BOARD_SIZE
+        ):
             return None
-        file_idx = x // config.SQUARE_SIZE
+        file_idx = (x - self._board_offset_x) // config.SQUARE_SIZE
         board_y = y - self._board_offset_y
         rank_idx = 7 - (board_y // config.SQUARE_SIZE)
         if 0 <= file_idx < 8 and 0 <= rank_idx < 8:
@@ -131,7 +148,7 @@ class BoardGUI:
         return file_idx, rank_idx
 
     def _square_rect(self, file_idx: int, rank_idx: int) -> pygame.Rect:
-        x = file_idx * config.SQUARE_SIZE
+        x = self._board_offset_x + file_idx * config.SQUARE_SIZE
         y = self._board_offset_y + (7 - rank_idx) * config.SQUARE_SIZE
         return pygame.Rect(x, y, config.SQUARE_SIZE, config.SQUARE_SIZE)
 
@@ -260,7 +277,10 @@ class BoardGUI:
         self.screen.blit(text, text_rect)
 
     def draw(self, board: chess.Board) -> None:
-        self.screen.fill(config.COLOR_STATUS_BG)
+        if self._background is not None:
+            self.screen.blit(self._background, (0, 0))
+        else:
+            self.screen.fill(config.COLOR_STATUS_BG)
         self._draw_status_bar()
 
         for rank_idx in range(8):

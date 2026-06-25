@@ -20,11 +20,13 @@ class RobotInterface(ABC):
         *,
         captured_square: Optional[str] = None,
         occupied_squares: Optional[AbstractSet[str]] = None,
+        moving_piece: Optional[str] = None,
     ) -> None:
         """
         Command the robot to move a piece from one square to another.
         Squares use algebraic notation: e2, e4, a1, etc.
         When *captured_square* is set, remove that piece before the normal move.
+        *moving_piece* is the python-chess symbol at the source square (e.g. ``N``).
         """
         pass
 

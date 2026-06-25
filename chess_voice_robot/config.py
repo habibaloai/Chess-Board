@@ -29,8 +29,13 @@ WINDOW_TITLE = "Wizard Chess"
 SQUARE_SIZE = 90  # pixels per square
 BOARD_SIZE = SQUARE_SIZE * 8
 STATUS_BAR_HEIGHT = 64
-WINDOW_WIDTH = BOARD_SIZE
-WINDOW_HEIGHT = BOARD_SIZE + STATUS_BAR_HEIGHT
+# Room around the board so the full-window background is visible.
+WINDOW_BOARD_MARGIN = 80
+WINDOW_WIDTH = BOARD_SIZE + WINDOW_BOARD_MARGIN * 2
+WINDOW_HEIGHT = BOARD_SIZE + STATUS_BAR_HEIGHT + WINDOW_BOARD_MARGIN
+BACKGROUND_IMAGE = os.path.join(
+    os.path.dirname(__file__), "ui", "assets", "Wallpaper.jpg"
+)
 
 # Status bar / turn indicator (online-chess style)
 COLOR_STATUS_BG = (45, 45, 48)
