@@ -2,6 +2,8 @@
 
 Desktop chess where you **speak moves**, see a **live pygame board**, and play against **Stockfish**. Architecture is modular so a **physical chess robot** can plug in later without changing game logic.
 
+<img width="4032" height="3024" alt="IMG_8969" src="https://github.com/user-attachments/assets/ee45e924-424f-4484-9be1-27e60cc57bf5" />
+
 ## Features
 
 - Voice input → UCI moves (`e2e4`) via natural speech ("e two e four", "move e2 to e4", "e2 e4")
