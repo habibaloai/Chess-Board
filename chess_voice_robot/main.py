@@ -17,6 +17,7 @@ from chess_voice_robot.core.controller import GameController
 from chess_voice_robot.robot.interface import RobotInterface
 from chess_voice_robot.speech.speech_recognizer import SpeechRecognizer
 from chess_voice_robot.ui.board_gui import BoardGUI
+from chess_voice_robot.utils import audio
 
 
 def _create_robot() -> RobotInterface:
@@ -33,15 +34,27 @@ def _create_robot() -> RobotInterface:
 def main() -> None:
     game = ChessGame()
     gui = BoardGUI()
+    audio.start_background_music()
+    gui.show_loading_screen()
+    audio.ensure_background_music()
+    # Keep the gameplay wallpaper visible while engines and speech start up.
+    gui.show_game_backdrop()
+    audio.ensure_background_music()
+
     robot = _create_robot()
+    gui.show_game_backdrop()
+    audio.ensure_background_music()
     stockfish = StockfishEngine()
 
     try:
         stockfish.start()
     except FileNotFoundError:
+        audio.stop_background_music()
         gui.quit()
         sys.exit(1)
 
+    gui.show_game_backdrop()
+    audio.ensure_background_music()
     speech = SpeechRecognizer()
     speech_queue: queue.Queue = queue.Queue()
     controller = GameController(
@@ -54,11 +67,13 @@ def main() -> None:
     )
 
     speech.start_listening(controller.enqueue_speech)
+    audio.ensure_background_music()
     controller.initial_draw()
 
     running = True
     try:
         while running:
+            audio.ensure_background_music()
             running = gui.pump_events(
                 on_estop=controller.emergency_stop,
                 on_board_click=controller.handle_board_click,
@@ -76,6 +91,7 @@ def main() -> None:
         robot.go_home()
         if hasattr(robot, "close"):
             robot.close()
+        audio.stop_background_music()
         gui.quit()
 
 

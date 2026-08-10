@@ -75,6 +75,14 @@ class GameController:
         self._selected_square: Optional[str] = None
         self._legal_targets: Set[str] = set()
 
+        # Narration / long-turn state (reset on a new game session).
+        self._human_turn_count = 0
+        self._long_turn_deadline: Optional[float] = None
+        self._long_turn_warned = False
+        self._delay_long_turn_for_intro = False
+        self._stir_played_this_engine_turn = False
+        audio.reset_narrator_session()
+
     def _robot_worker(self) -> None:
         while True:
             job = self._robot_queue.get()
@@ -130,6 +138,7 @@ class GameController:
         elif resume == "game_over":
             self._phase = TurnPhase.GAME_OVER
             self.speech.set_paused(True)
+            self._cancel_long_turn_timer()
         self.gui.draw(self.game.board)
 
     def emergency_stop(self) -> None:
@@ -160,9 +169,24 @@ class GameController:
 
     def tick(self) -> None:
         """Update timers, status bar, engine delay, and process at most one voice command."""
+        audio.tick_narrator()
+        audio.ensure_background_music()
         self._update_status_bar()
 
         now = time.monotonic()
+
+        if self._delay_long_turn_for_intro and not audio.narrator_busy():
+            self._delay_long_turn_for_intro = False
+            self._arm_long_turn_timer()
+
+        if (
+            self._phase == TurnPhase.HUMAN_TURN
+            and self._long_turn_deadline is not None
+            and not self._long_turn_warned
+            and now >= self._long_turn_deadline
+        ):
+            self._long_turn_warned = True
+            audio.play_takes_too_long()
 
         if self._phase == TurnPhase.ROBOT_MOVING and self._is_robot_idle():
             self._on_robot_idle()
@@ -173,7 +197,8 @@ class GameController:
             self._execute_engine_move()
 
         if self._phase == TurnPhase.SPEECH_COOLDOWN and now >= self._cooldown_until:
-            self._begin_human_turn()
+            # Same human turn continues after an invalid attempt — no new turn announcement.
+            self._begin_human_turn(announce_turn=False, fresh_turn=False)
 
         if (
             self._phase == TurnPhase.HUMAN_TURN
@@ -187,6 +212,73 @@ class GameController:
                     self._handle_speech(text)
                 finally:
                     self._busy = False
+
+    def _arm_long_turn_timer(self) -> None:
+        self._long_turn_deadline = time.monotonic() + config.PLAYER_TURN_TIMEOUT_SECONDS
+        self._long_turn_warned = False
+
+    def _cancel_long_turn_timer(self) -> None:
+        self._long_turn_deadline = None
+        self._long_turn_warned = False
+        self._delay_long_turn_for_intro = False
+
+    def _begin_human_turn(
+        self,
+        *,
+        announce_turn: bool = True,
+        fresh_turn: bool = True,
+        delay_long_timer: bool = False,
+    ) -> None:
+        if not self._is_robot_idle():
+            self._phase = TurnPhase.ROBOT_MOVING
+            self.speech.set_paused(True)
+            return
+        if self.game.is_game_over():
+            self._phase = TurnPhase.GAME_OVER
+            self.speech.set_paused(True)
+            self._clear_speech_queue()
+            self._cancel_long_turn_timer()
+            return
+        self._phase = TurnPhase.HUMAN_TURN
+        if self.gui.speech_recognition_enabled:
+            self.speech.set_paused(False)
+        else:
+            self.speech.set_paused(True)
+            self._clear_speech_queue()
+
+        if fresh_turn:
+            self._human_turn_count += 1
+            # First turn uses intro narration (board awaits + first move).
+            if announce_turn and self._human_turn_count > 1:
+                audio.play_players_turn()
+            if delay_long_timer:
+                self._delay_long_turn_for_intro = True
+                self._long_turn_deadline = None
+                self._long_turn_warned = False
+            else:
+                self._arm_long_turn_timer()
+
+    def _begin_engine_turn(self) -> None:
+        if not self._is_robot_idle():
+            self._phase = TurnPhase.ROBOT_MOVING
+            self.speech.set_paused(True)
+            return
+        self._cancel_long_turn_timer()
+        self._phase = TurnPhase.ENGINE_WAITING
+        self.speech.set_paused(True)
+        self._clear_speech_queue()
+        self._engine_ready_at = time.monotonic() + config.ENGINE_MOVE_DELAY
+        if not self._stir_played_this_engine_turn:
+            self._stir_played_this_engine_turn = True
+            audio.play_opposing_stir()
+
+    def _begin_invalid_cooldown(self) -> None:
+        self._phase = TurnPhase.SPEECH_COOLDOWN
+        self.speech.set_paused(True)
+        self._clear_speech_queue()
+        self._cooldown_until = time.monotonic() + config.SPEECH_COOLDOWN_AFTER_INVALID
+        audio.announce_invalid_move()
+        # Invalid attempts must not reset the long-turn timer.
 
     def enqueue_speech(self, text: str) -> None:
         """Only accept speech during the human turn in voice mode."""
@@ -216,47 +308,15 @@ class GameController:
             pass
         return latest
 
-    def _begin_human_turn(self) -> None:
-        if not self._is_robot_idle():
-            self._phase = TurnPhase.ROBOT_MOVING
-            self.speech.set_paused(True)
-            return
-        if self.game.is_game_over():
-            self._phase = TurnPhase.GAME_OVER
-            self.speech.set_paused(True)
-            self._clear_speech_queue()
-            return
-        self._phase = TurnPhase.HUMAN_TURN
-        if self.gui.speech_recognition_enabled:
-            self.speech.set_paused(False)
-        else:
-            self.speech.set_paused(True)
-            self._clear_speech_queue()
-
-    def _begin_engine_turn(self) -> None:
-        if not self._is_robot_idle():
-            self._phase = TurnPhase.ROBOT_MOVING
-            self.speech.set_paused(True)
-            return
-        self._phase = TurnPhase.ENGINE_WAITING
-        self.speech.set_paused(True)
-        self._clear_speech_queue()
-        self._engine_ready_at = time.monotonic() + config.ENGINE_MOVE_DELAY
-
-    def _begin_invalid_cooldown(self) -> None:
-        self._phase = TurnPhase.SPEECH_COOLDOWN
-        self.speech.set_paused(True)
-        self._clear_speech_queue()
-        self._cooldown_until = time.monotonic() + config.SPEECH_COOLDOWN_AFTER_INVALID
-        audio.announce_invalid_move()
-
     def _update_status_bar(self) -> None:
         if self._phase == TurnPhase.GAME_OVER:
+            outcome = self.game.outcome_message() or "The match is ended."
+            title = "Checkmate." if "checkmate" in outcome.lower() else "Game over"
             self.gui.set_status(
                 StatusDisplay(
-                    title="Game over",
-                    subtitle=self.game.outcome_message() or "Close window to exit",
-                    accent_color=config.COLOR_WAIT,
+                    title=title,
+                    subtitle=outcome,
+                    accent_color=config.COLOR_VICTORY,
                 )
             )
             return
@@ -267,11 +327,14 @@ class GameController:
                 if not self.gui.speech_recognition_enabled
                 else config.SPEAK_NOW_HINT
             )
+            in_check = self.game.board.is_check()
+            title = "Your king is in check." if in_check else "Your move."
+            accent = config.COLOR_CHECK if in_check else config.COLOR_YOUR_TURN
             self.gui.set_status(
                 StatusDisplay(
-                    title="Your turn — White",
+                    title=title,
                     subtitle=subtitle,
-                    accent_color=config.COLOR_YOUR_TURN,
+                    accent_color=accent,
                     pulse=self.gui.speech_recognition_enabled,
                 )
             )
@@ -280,8 +343,8 @@ class GameController:
         if self._phase == TurnPhase.SPEECH_COOLDOWN:
             self.gui.set_status(
                 StatusDisplay(
-                    title="Invalid move",
-                    subtitle="Listen… then speak your move again",
+                    title="That piece cannot move there.",
+                    subtitle="Compose yourself… then speak again.",
                     accent_color=config.COLOR_INVALID,
                 )
             )
@@ -290,7 +353,7 @@ class GameController:
         if self._phase == TurnPhase.ROBOT_MOVING:
             self.gui.set_status(
                 StatusDisplay(
-                    title="Robot moving",
+                    title="The enchantment takes hold…",
                     subtitle=config.ROBOT_MOVING_MESSAGE,
                     accent_color=config.COLOR_WAIT,
                 )
@@ -300,7 +363,7 @@ class GameController:
         if self._phase in (TurnPhase.ENGINE_WAITING, TurnPhase.ENGINE_MOVING):
             self.gui.set_status(
                 StatusDisplay(
-                    title="Black to move",
+                    title="Your opponent is considering their move…",
                     subtitle=config.ENGINE_THINKING_MESSAGE,
                     accent_color=config.COLOR_OPPONENT_TURN,
                 )
@@ -310,7 +373,7 @@ class GameController:
         if self._phase == TurnPhase.HUMAN_PROCESSING:
             self.gui.set_status(
                 StatusDisplay(
-                    title="Applying your move…",
+                    title="Your move is accepted.",
                     subtitle="",
                     accent_color=config.COLOR_WAIT,
                 )
@@ -377,6 +440,7 @@ class GameController:
         if move is None:
             self.gui.flash_illegal({square, self._selected_square})
             self._clear_selection()
+            audio.announce_invalid_move()
             self.gui.draw(board)
             return
 
@@ -386,11 +450,11 @@ class GameController:
         self._update_status_bar()
         self.gui.draw(board)
 
-        audio.play_valid_move()
         if not self._apply_move_and_dispatch_robot(move, resume_on_continue="engine"):
             self.gui.flash_illegal({square})
+            audio.announce_invalid_move()
             self.gui.draw(board)
-            self._begin_human_turn()
+            self._begin_human_turn(announce_turn=False, fresh_turn=False)
 
     def _clear_selection(self) -> None:
         self._selected_square = None
@@ -442,7 +506,6 @@ class GameController:
             self.gui.draw(self.game.board)
             return
 
-        audio.play_valid_move()
         if not self._apply_move_and_dispatch_robot(move, resume_on_continue="engine"):
             self._begin_invalid_cooldown()
             self.gui.draw(self.game.board)
@@ -456,6 +519,28 @@ class GameController:
 
         if not self.game.push_move(move):
             return False
+
+        self._cancel_long_turn_timer()
+
+        if self.game.board.is_checkmate():
+            # King "dies" — victory narration (priority over capture / check clips).
+            outcome = self.game.board.outcome()
+            if outcome is not None and outcome.winner == chess.WHITE:
+                audio.play_player_wins()
+            elif outcome is not None and outcome.winner == chess.BLACK:
+                audio.play_opponent_wins()
+        elif self.game.board.is_check():
+            # King threatened only (not mate).
+            if self.game.board.turn == chess.WHITE:
+                audio.play_player_checkmate()
+            else:
+                audio.play_opponent_checkmate()
+        elif captured is not None:
+            audio.play_piece_fallen()
+
+        if resume_on_continue == "engine":
+            # Allow stir narration once when the opponent turn actually begins.
+            self._stir_played_this_engine_turn = False
 
         resume = "game_over" if self.game.is_game_over() else resume_on_continue
         squares = self.game.last_move_squares()
@@ -473,8 +558,12 @@ class GameController:
         elif self.game.is_game_over():
             self._phase = TurnPhase.GAME_OVER
             self.speech.set_paused(True)
+            self._cancel_long_turn_timer()
         else:
-            self._begin_engine_turn()
+            if resume_on_continue == "engine":
+                self._begin_engine_turn()
+            else:
+                self._begin_human_turn()
         self.gui.draw(self.game.board)
         return True
 
@@ -501,6 +590,14 @@ class GameController:
             self.gui.draw(self.game.board)
 
     def initial_draw(self) -> None:
-        self.gui.draw(self.game.board)
-        self._begin_human_turn()
-        self.gui.draw(self.game.board)
+        audio.ensure_background_music()
+        audio.set_gameplay_music_volume()
+        self._update_status_bar()
+        # Start intro as the board fades in (awaits → first move, queued).
+        audio.queue_game_intro()
+        self.gui.fade_in_board(self.game.board)
+        self._begin_human_turn(
+            announce_turn=False,
+            fresh_turn=True,
+            delay_long_timer=True,
+        )

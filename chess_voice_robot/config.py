@@ -23,56 +23,124 @@ ENGINE_MOVE_DELAY =2.0  # seconds
 SPEECH_COOLDOWN_AFTER_INVALID = 2.0  # seconds
 
 # ---------------------------------------------------------------------------
-# GUI (pygame)
+# GUI (pygame) — Wizard Chess theme
 # ---------------------------------------------------------------------------
 WINDOW_TITLE = "Wizard Chess"
-SQUARE_SIZE = 90  # pixels per square
+SQUARE_SIZE = 90  # default / reference square size (pixels); board scales at runtime
 BOARD_SIZE = SQUARE_SIZE * 8
-STATUS_BAR_HEIGHT = 64
-# Room around the board so the full-window background is visible.
+STATUS_BAR_HEIGHT = 108
 WINDOW_BOARD_MARGIN = 80
 WINDOW_WIDTH = BOARD_SIZE + WINDOW_BOARD_MARGIN * 2
 WINDOW_HEIGHT = BOARD_SIZE + STATUS_BAR_HEIGHT + WINDOW_BOARD_MARGIN
 BACKGROUND_IMAGE = os.path.join(
-    os.path.dirname(__file__), "ui", "assets", "Wallpaper.jpg"
+    os.path.dirname(__file__), "ui", "assets", "wizard_scene.png"
 )
+LOADING_SCREEN_IMAGE = BACKGROUND_IMAGE  # same art — seamless loading → gameplay
+LOADING_SCREEN_SECONDS = 4.0
+BOARD_FADE_IN_SECONDS = 1.4
+# Fit the board inside available space, then shrink slightly (keeps it square).
+BOARD_SCALE = 0.86
+_SOUND_DIR = os.path.join(os.path.dirname(__file__), "ui", "sound")
+LOADING_SCREEN_AUDIO = os.path.join(_SOUND_DIR, "loading screen audio.mp3")
+BACKGROUND_MUSIC = os.path.join(
+    _SOUND_DIR,
+    "hitslab-magic-mystery-harry-potter-music-320643.mp3",
+)
+BACKGROUND_MUSIC_VOLUME = 0.45  # loading + default gameplay bed
+# Subtle reduction on the game screen (~12%) so narration stays clear.
+BACKGROUND_MUSIC_VOLUME_GAME = round(BACKGROUND_MUSIC_VOLUME * 0.88, 3)  # ≈ 0.396
+NARRATOR_BOARD_AWAITS = os.path.join(_SOUND_DIR, "the board awaits.mp3")
+NARRATOR_FIRST_MOVE = os.path.join(_SOUND_DIR, "player makes first move.mp3")
+NARRATOR_PLAYERS_TURN = os.path.join(_SOUND_DIR, "player's turn.mp3")
+NARRATOR_OPPOSING_STIR = os.path.join(_SOUND_DIR, "the opposing pieces stir.mp3")
+NARRATOR_INVALID_MOVE = os.path.join(_SOUND_DIR, "invalid move.mp3")
+NARRATOR_PIECE_FALLEN = os.path.join(_SOUND_DIR, "piece fallen.mp3")
+NARRATOR_TAKES_TOO_LONG = os.path.join(_SOUND_DIR, "player takes too long.mp3")
+NARRATOR_PLAYER_CHECKMATE = os.path.join(_SOUND_DIR, "player checkmate.mp3")
+NARRATOR_OPPONENT_CHECKMATE = os.path.join(_SOUND_DIR, "opponent checkmate.mp3")
+NARRATOR_PLAYER_WINS = os.path.join(_SOUND_DIR, "player wins.mp3")
+NARRATOR_OPPONENT_WINS = os.path.join(_SOUND_DIR, "oponnent wins.mp3")
+NARRATOR_VOLUME = 0.95
+PLAYER_TURN_TIMEOUT_SECONDS = 20.0
 
-# Status bar / turn indicator (online-chess style)
-COLOR_STATUS_BG = (45, 45, 48)
-COLOR_STATUS_TEXT = (240, 240, 240)
-COLOR_STATUS_SUB = (180, 180, 185)
-COLOR_YOUR_TURN = (76, 175, 80)      # green — speak now
-COLOR_OPPONENT_TURN = (255, 152, 0)  # orange — thinking
-COLOR_WAIT = (120, 120, 125)
-COLOR_INVALID = (229, 115, 115)
-COLOR_SELECTED_SQUARE = (255, 235, 59, 100)   # yellow tint
-COLOR_LEGAL_MOVE = (76, 175, 80, 140)         # green tint / dot
-COLOR_ILLEGAL_FLASH = (211, 47, 47, 180)      # red tint
-COLOR_INPUT_TOGGLE_ON = (76, 175, 80)
-COLOR_INPUT_TOGGLE_OFF = (90, 90, 95)
-COLOR_ESTOP = (211, 47, 47)
-COLOR_ESTOP_PRESSED = (183, 28, 28)
-COLOR_ESTOP_TEXT = (255, 255, 255)
+# --- Palette (RGB / RGBA) ---------------------------------------------------
+# Dark shadows
+THEME_SHADOW = (11, 13, 15)          # #0B0D0F
+THEME_SHADOW_MID = (21, 23, 25)      # #151719
+THEME_SHADOW_LIFT = (32, 35, 39)     # #202327
+# Ancient stone
+THEME_STONE = (59, 58, 54)           # #3B3A36
+THEME_STONE_MID = (85, 80, 71)       # #555047
+THEME_STONE_LIGHT = (115, 107, 94)   # #736B5E
+# Warm parchment
+THEME_PARCHMENT = (214, 197, 160)    # #D6C5A0
+THEME_PARCHMENT_DIM = (191, 167, 122)  # #BFA77A
+# Antique gold
+THEME_GOLD = (184, 155, 94)          # #B89B5E
+THEME_GOLD_BRIGHT = (208, 179, 106)  # #D0B36A
+THEME_GOLD_DARK = (140, 115, 63)     # #8C733F
+# Dark burgundy
+THEME_BURGUNDY = (84, 31, 38)        # #541F26
+THEME_BURGUNDY_LIGHT = (114, 43, 53)  # #722B35
+# Deep magical blue
+THEME_BLUE = (27, 40, 56)            # #1B2838
+THEME_BLUE_LIGHT = (38, 59, 80)      # #263B50
+
+# Status bar (translucent stone panel — not bright green/red fills)
+COLOR_STATUS_BG = (*THEME_SHADOW, 210)
+COLOR_STATUS_BORDER = THEME_GOLD_DARK
+COLOR_STATUS_TEXT = THEME_PARCHMENT
+COLOR_STATUS_SUB = THEME_PARCHMENT_DIM
+COLOR_YOUR_TURN = THEME_GOLD
+COLOR_OPPONENT_TURN = THEME_PARCHMENT_DIM
+COLOR_WAIT = THEME_STONE_LIGHT
+COLOR_INVALID = THEME_BURGUNDY_LIGHT
+COLOR_VICTORY = THEME_GOLD_BRIGHT
+COLOR_CHECK = THEME_BURGUNDY_LIGHT
+
+# Board squares — muted stone
+LIGHT_SQUARE = (138, 129, 115)       # #8A8173
+DARK_SQUARE = (52, 53, 54)           # #343536
+BOARD_FRAME = THEME_GOLD_DARK
+BOARD_FRAME_INNER = THEME_STONE
+BOARD_SHADOW = (0, 0, 0, 90)
+
+# Highlights (RGBA overlays)
+COLOR_SELECTED_SQUARE = (*THEME_GOLD, 110)
+COLOR_LEGAL_MOVE = (*THEME_GOLD_BRIGHT, 90)
+COLOR_LEGAL_CAPTURE = (*THEME_BURGUNDY_LIGHT, 140)
+COLOR_ILLEGAL_FLASH = (*THEME_BURGUNDY, 160)
+HIGHLIGHT_LAST_MOVE = (*THEME_PARCHMENT, 70)
+
+# Controls
+COLOR_INPUT_TOGGLE_ON = THEME_GOLD_DARK
+COLOR_INPUT_TOGGLE_OFF = THEME_SHADOW_LIFT
+COLOR_BUTTON_BG = (*THEME_SHADOW_MID, 220)
+COLOR_BUTTON_BORDER = THEME_GOLD_DARK
+COLOR_BUTTON_HOVER = THEME_GOLD
+COLOR_ESTOP = THEME_BURGUNDY
+COLOR_ESTOP_PRESSED = THEME_BURGUNDY_LIGHT
+COLOR_ESTOP_TEXT = THEME_PARCHMENT
+COLOR_ESTOP_BORDER = THEME_GOLD_DARK
+
 ESTOP_BUTTON_WIDTH = 52
-ESTOP_BUTTON_HEIGHT = 28
+ESTOP_BUTTON_HEIGHT = 52
 INPUT_TOGGLE_WIDTH = 64
 INPUT_TOGGLE_HEIGHT = 28
-MIC_BUTTON_SIZE = 44
+MIC_BUTTON_SIZE = 52
 MIC_HIT_PADDING = 10
-STATUS_FONT_SIZE = 20
-STATUS_SUB_FONT_SIZE = 14
-ESTOP_FONT_SIZE = 13
-
-# Board colors
-LIGHT_SQUARE = (240, 217, 181)  # cream
-DARK_SQUARE = (181, 136, 99)    # brown
-HIGHLIGHT_LAST_MOVE = (255, 255, 0, 80)  # yellow tint (RGBA)
+STATUS_FONT_SIZE = 24
+STATUS_SUB_FONT_SIZE = 16
+ESTOP_FONT_SIZE = 12
 
 # Label text on each square
-LABEL_COLOR_LIGHT = (100, 80, 60)
-LABEL_COLOR_DARK = (220, 200, 180)
+LABEL_COLOR_LIGHT = (60, 55, 48)
+LABEL_COLOR_DARK = THEME_PARCHMENT_DIM
 LABEL_FONT_SIZE = 11
 PIECE_FONT_SIZE = 48
+PIECE_COLOR_LIGHT = (235, 225, 205)
+PIECE_COLOR_DARK = (18, 16, 14)
+PIECE_OUTLINE = (0, 0, 0)
 
 # Unicode chess pieces (white / black)
 PIECES_UNICODE = {
@@ -96,12 +164,12 @@ SPEECH_PAUSE_THRESHOLD = 0.8  # seconds of silence to end phrase
 SPEECH_ENERGY_THRESHOLD = 300  # initial RMS threshold (auto-calibrated on startup)
 
 # ---------------------------------------------------------------------------
-# UI messages (visual only — no voice)
+# UI messages (visual only — no voice / no SFX)
 # ---------------------------------------------------------------------------
-ENGINE_THINKING_MESSAGE = "Opponent is thinking."
-ROBOT_MOVING_MESSAGE = "Robot is moving — please wait."
-SPEAK_NOW_HINT = "Speak a move, or click 🎤 / press M for mouse mode"
-MOUSE_MODE_HINT = "Mic off — click a piece, then its destination (M toggles voice)"
+ENGINE_THINKING_MESSAGE = "Your opponent is considering their move…"
+ROBOT_MOVING_MESSAGE = "The pieces stir upon the board — please wait."
+SPEAK_NOW_HINT = "Speak a move, or silence the mic (🎤 / M) for mouse play"
+MOUSE_MODE_HINT = "Mic silenced — click a piece, then its destination (M restores voice)"
 INVALID_MOVE_FLASH_MS = 600
 
 # ---------------------------------------------------------------------------
