@@ -81,6 +81,8 @@ class GameController:
         self._long_turn_warned = False
         self._delay_long_turn_for_intro = False
         self._stir_played_this_engine_turn = False
+        # Keep mic closed until "player's turn" / intro VO finishes.
+        self._await_turn_narration = False
         audio.reset_narrator_session()
 
     def _robot_worker(self) -> None:
@@ -179,6 +181,17 @@ class GameController:
             self._delay_long_turn_for_intro = False
             self._arm_long_turn_timer()
 
+        # Open the mic only after turn-announcement VO has finished.
+        if (
+            self._await_turn_narration
+            and self._phase == TurnPhase.HUMAN_TURN
+            and not audio.narrator_busy()
+        ):
+            self._await_turn_narration = False
+            self._clear_speech_queue()
+            if self.gui.speech_recognition_enabled:
+                self.speech.set_paused(False)
+
         if (
             self._phase == TurnPhase.HUMAN_TURN
             and self._long_turn_deadline is not None
@@ -203,6 +216,7 @@ class GameController:
         if (
             self._phase == TurnPhase.HUMAN_TURN
             and not self._busy
+            and not self._await_turn_narration
             and self.gui.speech_recognition_enabled
         ):
             text = self._take_latest_speech()
@@ -240,17 +254,17 @@ class GameController:
             self._cancel_long_turn_timer()
             return
         self._phase = TurnPhase.HUMAN_TURN
-        if self.gui.speech_recognition_enabled:
-            self.speech.set_paused(False)
-        else:
-            self.speech.set_paused(True)
-            self._clear_speech_queue()
+        hold_mic_for_vo = False
 
         if fresh_turn:
             self._human_turn_count += 1
             # First turn uses intro narration (board awaits + first move).
             if announce_turn and self._human_turn_count > 1:
                 audio.play_players_turn()
+                hold_mic_for_vo = True
+            elif delay_long_timer:
+                # Intro VO already queued — keep mic closed until it ends.
+                hold_mic_for_vo = True
             if delay_long_timer:
                 self._delay_long_turn_for_intro = True
                 self._long_turn_deadline = None
@@ -258,12 +272,21 @@ class GameController:
             else:
                 self._arm_long_turn_timer()
 
+        self._await_turn_narration = hold_mic_for_vo
+        # Stay paused while turn VO plays; tick() opens the mic afterward.
+        if self.gui.speech_recognition_enabled and not hold_mic_for_vo:
+            self.speech.set_paused(False)
+        else:
+            self.speech.set_paused(True)
+            self._clear_speech_queue()
+
     def _begin_engine_turn(self) -> None:
         if not self._is_robot_idle():
             self._phase = TurnPhase.ROBOT_MOVING
             self.speech.set_paused(True)
             return
         self._cancel_long_turn_timer()
+        self._await_turn_narration = False
         self._phase = TurnPhase.ENGINE_WAITING
         self.speech.set_paused(True)
         self._clear_speech_queue()
@@ -283,6 +306,8 @@ class GameController:
     def enqueue_speech(self, text: str) -> None:
         """Only accept speech during the human turn in voice mode."""
         if self._phase != TurnPhase.HUMAN_TURN or not self.gui.speech_recognition_enabled:
+            return
+        if self._await_turn_narration:
             return
         # Keep only the newest utterance — drop stale retries
         try:
@@ -383,8 +408,10 @@ class GameController:
         speech_on = self.gui.toggle_speech()
         self._clear_selection()
         if speech_on:
-            if self._phase == TurnPhase.HUMAN_TURN:
+            if self._phase == TurnPhase.HUMAN_TURN and not self._await_turn_narration:
                 self.speech.set_paused(False)
+            else:
+                self.speech.set_paused(True)
         else:
             self.speech.set_paused(True)
             self._clear_speech_queue()
