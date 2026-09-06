@@ -1,6 +1,6 @@
 # Wizard Chess — Voice-Controlled Physical Chess Robot
 
-An end-to-end mechatronics and software system: speak a chess move, watch it execute on a custom XY gantry, and play against Stockfish. The same stack runs without hardware via a robot simulator.
+A **Cyber-Physical Systems** course project: speak a chess move, watch it execute on a custom XY gantry, and play against Stockfish. The same stack runs without hardware via a robot simulator.
 
 <p align="center">
   <img src="docs/images/cover.png" alt="Custom automated chessboard: playing surface, 3D-printed pieces, and XY gantry with Arduino CNC shield" width="900" />
@@ -22,9 +22,9 @@ An end-to-end mechatronics and software system: speak a chess move, watch it exe
 
 ## What this repository is
 
-This is not a chess UI demo. It is a **closed-loop product**: speech and mouse input, full chess legality, engine play, a themed desktop client, and a GRBL-driven Cartesian robot that physically transports pieces (including captures and knight path planning).
+This is a **closed-loop cyber-physical system**: speech and mouse input, full chess legality, engine play, a themed desktop client, and a GRBL-driven Cartesian robot that physically transports pieces (including captures and knight path planning).
 
-Recruiters scanning this repo should see:
+The implementation spans these layers:
 
 | Layer | What shipped |
 | --- | --- |
