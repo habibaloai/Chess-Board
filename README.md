@@ -12,6 +12,12 @@ An end-to-end mechatronics and software system: speak a chess move, watch it exe
   <img src="docs/images/gantry-detail.png" alt="Laptop UI synchronized with the physical board and GRBL electronics" width="430" />
 </p>
 
+## Project Documentation
+
+- **Project presentation:** [Slides](CPS%20Submission/Slides.pdf)
+- **Demonstration video:** [Chess Video Compressed](CPS%20Submission/Chess%20Video%20Compressed.mp4)
+- **Technical documentation:** coming soon (PDF to be uploaded)
+
 ---
 
 ## What this repository is
