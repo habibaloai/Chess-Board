@@ -6,11 +6,16 @@ A **Cyber-Physical Systems** course project: speak a chess move, watch it execut
   <img src="docs/images/cover.png" alt="Custom automated chessboard: playing surface, 3D-printed pieces, and XY gantry with Arduino CNC shield" width="900" />
 </p>
 
-<p align="center">
-  <img src="docs/images/hardware-overview.png" alt="Board from another angle showing the open frame and electronics" width="430" />
-  &nbsp;
-  <img src="docs/images/gantry-detail.png" alt="Laptop UI synchronized with the physical board and GRBL electronics" width="430" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/hardware-overview.png" alt="Board from another angle showing the open frame and electronics" width="100%" />
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/gantry-detail.png" alt="Laptop UI synchronized with the physical board and GRBL electronics" width="100%" />
+    </td>
+  </tr>
+</table>
 
 ## Project Documentation
 
