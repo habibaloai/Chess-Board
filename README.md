@@ -16,7 +16,7 @@ A **Cyber-Physical Systems** course project: speak a chess move, watch it execut
 
 - **Project presentation:** [Slides](CPS%20Submission/Slides.pdf)
 - **Demonstration video:** [Chess Video Compressed](CPS%20Submission/Chess%20Video%20Compressed.mp4)
-- **Technical documentation:** coming soon (PDF to be uploaded)
+- **Technical documentation:** [Technical Report](CPS%20Submission/Technical_Report.pdf)
 
 ---
 
